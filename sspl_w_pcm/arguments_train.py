@@ -6,9 +6,8 @@ Settings.
 import argparse
 
 
-data_path = "/metadata"    # e.g., /home/xxx/Datasets/
-weights_vggish = "/models/torchvggish/torchvggish/vggish_pretrained/vggish-10086976.pth"
-
+data_path = "./metadata/"    # e.g., /home/xxx/Datasets/
+weights_vggish = "./sspl_w_pcm/models/torchvggish/torchvggish/vggish_pretrained/vggish-10086976.pth"
 
 class ArgParser(object):
     def __init__(self):
@@ -77,8 +76,8 @@ class ArgParser(object):
         # -----------------------------
         # Distributed Data Parallel
         # -----------------------------
-        parser.add_argument('--gpu_ids', default='0,1', type=str)
-        parser.add_argument('--num_gpus', default=2, type=int,
+        parser.add_argument('--gpu_ids', default='0', type=str)
+        parser.add_argument('--num_gpus', default=1, type=int,
                             help='number of gpus to use within a node')
         parser.add_argument('--batch_size_per_gpu', default=128, type=int,
                             help='batch size for each gpu')

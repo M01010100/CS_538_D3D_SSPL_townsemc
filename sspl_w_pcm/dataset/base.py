@@ -40,9 +40,9 @@ class BaseDataset(torchdata.Dataset):
 
         elif self.mode == 'test':
             if self.testset == 'flickr':
-                data_path = args.data_path + 'SoundNet_Flickr/flickr_test249_in5k.csv'
+                data_path = args.data_path + 'flickr_test249_in5k.csv'
             elif self.testset == 'vggss':
-                data_path = args.data_path + 'VGG-Sound/vggss_test_4692.csv'
+                data_path = args.data_path + 'vggss_test_4692.csv'
 
             self.data_ids = pd.read_csv(data_path, header=None, sep=',')
             self.num_data = self.data_ids.shape[0]

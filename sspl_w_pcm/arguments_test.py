@@ -6,13 +6,12 @@ Settings.
 import argparse
 
 
-data_path = "/metadata/"    # e.g., /home/xxx/Datasets/
-weights_frame = "/models/pretrain/frame_best.pth"
-weights_sound = "/models/pretrain/sound_best.pth"
-weights_pcm = "/models/pretrain/pcm_best.pth"
-weights_ssl_head = "/models/pretrain/ssl_head_best.pth"
-weights_vggish = "/models/torchvggish/torchvggish/vggish_pretrained/vggish-10086976.pth"
-
+data_path = "./metadata/"    # e.g., /home/xxx/Datasets/
+weights_frame = "./models/pretrain/frame_best.pth"
+weights_sound = "./models/pretrain/sound_best.pth"
+weights_pcm = "./models/pretrain/pcm_best.pth"
+weights_ssl_head = "./models/pretrain/ssl_head_best.pth"
+weights_vggish = "./sspl_w_pcm/models/torchvggish/torchvggish/vggish_pretrained/vggish-10086976.pth"
 
 class ArgParser(object):
     def __init__(self):
