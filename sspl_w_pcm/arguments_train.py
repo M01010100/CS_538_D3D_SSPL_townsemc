@@ -6,8 +6,8 @@ Settings.
 import argparse
 
 
-data_path = "path to Datasets"    # e.g., /home/xxx/Datasets/
-weights_vggish = "./models/torchvggish/torchvggish/vggish_pretrained/vggish-10086976.pth"
+data_path = "/metadata"    # e.g., /home/xxx/Datasets/
+weights_vggish = "/models/torchvggish/torchvggish/vggish_pretrained/vggish-10086976.pth"
 
 
 class ArgParser(object):

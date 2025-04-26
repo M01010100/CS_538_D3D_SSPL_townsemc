@@ -53,7 +53,7 @@ def main():
     args.best_ciou = -float("inf")
 
     args.world_size = args.num_gpus * args.nodes
-    os.environ['MASTER_ADDR'] = 'xxx.xx.xx.xx'  # specified by yourself
+    os.environ['MASTER_ADDR'] = '127.0.0.1'  # specified by yourself
     os.environ['MASTER_PORT'] = '8899'  # specified by yourself
     os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
