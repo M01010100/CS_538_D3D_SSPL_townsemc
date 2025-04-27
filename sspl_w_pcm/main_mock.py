@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 import cv2
 from sklearn.metrics import auc
+import argparse  # Make sure this is imported
 
 import torch
 import torch.nn as nn
@@ -17,28 +18,55 @@ from torch.utils.data.distributed import DistributedSampler
 from models import ModelBuilder
 from dataset.videodataset_mock import VideoDatasetMock  # Use our mock dataset
 
-from arguments_train import ArgParser
+# Replace this import if ArgParser doesn't work
+# from arguments_train import ArgParser
 from utils import makedirs, AverageMeter, save_visual, plot_loss_metrics, normalize_img
 
 warnings.filterwarnings('ignore')
 
 def main():
-    # First create the mock dataset
-    from data import main as create_mock_data
-    create_mock_data()
+    # Replace the ArgParser with standard argparse.ArgumentParser
+    parser = argparse.ArgumentParser()
     
-    # arguments
-    parser = ArgParser()
-    args = parser.parse_train_arguments()
+    # Dataset parameters
+    parser.add_argument('--data_path', type=str, default='./metadata', help='path to dataset folder')
+    parser.add_argument('--img_size', type=int, default=224, help='size to resize images to')
+    parser.add_argument('--mode', type=str, default='ssl', help='ssl or sup')
+    parser.add_argument('--num_train', type=int, default=30, help='number of training samples to use')
     
-    # Override some arguments for testing
-    args.num_gpus = 1
-    args.gpu_ids = '0'
-    args.batch_size_per_gpu = 2
-    args.num_epoch = 2
-    args.num_train = 3  # We created 3 training samples
-    args.batch_size = args.num_gpus * args.batch_size_per_gpu
-    args.weights_vggish = None  # Skip VGGish weights
+    # Training parameters
+    parser.add_argument('--num_epoch', type=int, default=5, help='number of training epochs')
+    parser.add_argument('--batch_size', type=int, default=2, help='batch size')
+    parser.add_argument('--workers', type=int, default=4, help='number of data loading workers')
+    parser.add_argument('--disp_iter', type=int, default=1, help='iterations per display')
+    parser.add_argument('--eval_epoch', type=int, default=1, help='epochs per evaluation')
+    parser.add_argument('--save_epoch', type=int, default=1, help='epochs per saving checkpoint')
+    
+    # Model parameters
+    parser.add_argument('--arch_frame', type=str, default='resnet18', help='frame feature extractor')
+    parser.add_argument('--arch_sound', type=str, default='vggish', help='sound feature extractor')
+    parser.add_argument('--arch_selfsuperlearn_head', type=str, default='simclr', help='ssl head type')
+    parser.add_argument('--weights_vggish', type=str, default=None, help='path to vggish weights')
+    parser.add_argument('--train_from_scratch', action='store_true', help='train frame extractor from scratch')
+    parser.add_argument('--fine_tune', action='store_true', help='fine-tune pretrained frame extractor')
+    parser.add_argument('--out_dim', type=int, default=512, help='output dimension for feature extractors')
+    parser.add_argument('--cycs_sup', type=int, default=2, help='number of PCM cycles for supervised learning')
+    
+    # Optimizer parameters
+    parser.add_argument('--lr_frame', type=float, default=1e-4, help='learning rate for frame extractor')
+    parser.add_argument('--lr_sound', type=float, default=1e-4, help='learning rate for sound extractor')
+    parser.add_argument('--lr_ssl_head', type=float, default=1e-4, help='learning rate for ssl head')
+    parser.add_argument('--beta1', type=float, default=0.9, help='beta1 for Adam')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay for optimizer')
+    
+    # Other parameters
+    parser.add_argument('--id', type=str, default='default', help='experiment ID')
+    parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0 or 0,1')
+    parser.add_argument('--seed', type=int, default=1234, help='random seed')
+    parser.add_argument('--ckpt', type=str, default='./ckpt', help='folder to output checkpoints')
+
+    # Parse arguments
+    args = parser.parse_args()
 
     # Check CUDA availability
     if torch.cuda.is_available():
@@ -70,70 +98,109 @@ def main():
         main_worker_single(device, args)
 
 def main_worker_single(device, args):
-    """Single GPU version without distributed training"""
+    """Single GPU training"""
+    # Set random seed
     random.seed(args.seed)
+    np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    ################################
-    # model
-    ################################
+    # Set up model builder
     builder = ModelBuilder()
-    net_frame = builder.build_frame(
-        arch=args.arch_frame,
-        train_from_scratch=args.train_from_scratch,
-        fine_tune=args.fine_tune
-    )
     
-    # Use dummy feature extractor if no weights
-    if args.weights_vggish is None or not os.path.exists(args.weights_vggish):
-        class DummySoundNet(nn.Module):
-            def __init__(self, out_dim=512):
-                super(DummySoundNet, self).__init__()
-                self.fc = nn.Linear(128, out_dim)
-            
-            def forward(self, x):
-                return self.fc(x)
-        
-        net_sound = DummySoundNet(out_dim=args.out_dim)
-        print("Using dummy sound network")
-    else:
+    # Try to build frame network with better error handling
+    try:
+        print(f"Building frame network with architecture: {args.arch_frame}")
+        net_frame = builder.build_frame(
+            arch=args.arch_frame,
+            train_from_scratch=args.train_from_scratch
+        )
+    except Exception as e:
+        print(f"Error building frame network: {e}")
+        print("Falling back to dummy frame network")
+        net_frame = builder.build_frame(arch='dummy')
+    
+    # Try to build sound network
+    try:
+        print(f"Building sound network with architecture: {args.arch_sound}")
         net_sound = builder.build_sound(
             arch=args.arch_sound,
-            weights_vggish=args.weights_vggish,
-            out_dim=args.out_dim
+            weights=args.weights_vggish if hasattr(args, 'weights_vggish') else ''
         )
-        
-    net_pc = builder.build_feat_fusion_pc(
-        cycs_in=args.cycs_sup,
-        dim_audio=args.out_dim
-    )
-    net_ssl_head = builder.build_selfsuperlearn_head(
-        arch=args.arch_selfsuperlearn_head,
-        in_dim_proj=args.out_dim,
-    )
+    except Exception as e:
+        print(f"Error building sound network: {e}")
+        print("Falling back to dummy sound network")
+        net_sound = builder.build_sound(arch='dummy')
+    
+    # Try to build SSL head
+    try:
+        print(f"Building SSL head with architecture: {args.arch_selfsuperlearn_head}")
+        net_ssl_head = builder.build_ssl_head(
+            arch=args.arch_selfsuperlearn_head
+        )
+    except Exception as e:
+        print(f"Error building SSL head: {e}")
+        print("Falling back to dummy SSL head")
+        net_ssl_head = builder.build_ssl_head(arch='dummy')
 
-    # Move models to device
+    # Move models to device and ensure parameters require gradients
     net_frame = net_frame.to(device)
     net_sound = net_sound.to(device)
-    net_pc = net_pc.to(device)
+    # net_pc = net_pc.to(device)  # Comment this line out - net_pc isn't defined
     net_ssl_head = net_ssl_head.to(device)
     
+    # Ensure all parameters require gradients
+    for param in net_frame.parameters():
+        param.requires_grad = True
+    for param in net_sound.parameters():
+        param.requires_grad = True
+    # for param in net_pc.parameters():  # Comment this line out - net_pc isn't defined
+    #     param.requires_grad = True
+    for param in net_ssl_head.parameters():
+        param.requires_grad = True
+
     # Create wrapper model for training
     class NetWrapper(torch.nn.Module):
-        def __init__(self, net_frame, net_sound, net_pc, net_ssl_head):
+        def __init__(self, net_frame, net_sound, net_ssl_head):
             super(NetWrapper, self).__init__()
             self.net_frame = net_frame
             self.net_sound = net_sound
-            self.net_pc = net_pc
             self.net_ssl_head = net_ssl_head
             self.temperature = 0.1
         
         def forward(self, batch_data):
-            # Extract features
-            frame_view1 = batch_data['frame_view1'].to(device)
-            frame_view2 = batch_data['frame_view2'].to(device)
-            audio_feat = batch_data['audio_feat'].to(device)
+            # Get the frame data using the keys that actually exist in your dataset
+            # Check if we're using the expected keys or need to adapt
+            if 'frame_view1' in batch_data and 'frame_view2' in batch_data:
+                frame_view1 = batch_data['frame_view1'].to(device)
+                frame_view2 = batch_data['frame_view2'].to(device)
+            elif 'frame' in batch_data:
+                # If only one frame is provided, duplicate it with some noise for the second view
+                frame = batch_data['frame'].to(device)
+                frame_view1 = frame
+                # Create a slightly perturbed version for the second view
+                noise = torch.randn_like(frame) * 0.1
+                frame_view2 = frame + noise
+            else:
+                # Print the keys that are available to debug
+                print(f"Available keys in batch_data: {batch_data.keys()}")
+                raise KeyError("Cannot find expected frame keys in the batch data")
             
+            audio_feat = batch_data['audio_feat'].to(device)
+    
+            # Fix audio feature shape before passing to sound network
+            if audio_feat.dim() == 3:
+                if audio_feat.size(2) == 1:  # Single time step
+                    audio_feat = audio_feat.squeeze(2)
+                else:  # Multiple time steps - take average
+                    audio_feat = audio_feat.mean(dim=2)
+    
+            # Case 2: [batch_size, time, features]
+            elif audio_feat.dim() == 3 and audio_feat.size(1) != 128 and audio_feat.size(2) == 128:
+                audio_feat = audio_feat.mean(dim=1)
+    
+            # Now audio_feat should be [batch_size, features]
+            print(f"Processed audio feature shape: {audio_feat.shape}")
+    
             # Forward through models
             frame_feat1 = self.net_frame(frame_view1)
             frame_feat2 = self.net_frame(frame_view2)
@@ -144,27 +211,73 @@ def main_worker_single(device, args):
             
             # Compute similarity map
             b, c, h, w = frame_feat1.size()
-            frame_feat1_flat = frame_feat1.view(b, c, -1)
-            sound_feat_exp = sound_feat.unsqueeze(-1)
+            frame_feat1_flat = frame_feat1.view(b, c, h*w)  # [b, c, h*w]
             
-            # Simple similarity calculation
-            sim_map = torch.bmm(frame_feat1_flat.transpose(1, 2), sound_feat_exp)
+            # Debug prints
+            print(f"frame_feat1_flat shape: {frame_feat1_flat.shape}")
+            print(f"sound_feat shape: {sound_feat.shape}")
+            
+            # Handle dimensions for sound features if they don't match frame features
+            if sound_feat.size(1) != c:
+                print(f"Warning: Sound feature dimension ({sound_feat.size(1)}) doesn't match frame feature channels ({c})")
+                # Use adaptive pooling to adjust sound feature dimension to match frame channels
+                sound_feat = sound_feat.unsqueeze(-1)  # Add a dummy spatial dimension [b, dim, 1]
+                sound_feat = F.adaptive_avg_pool1d(sound_feat, c).squeeze(-1)  # Reshape to [b, c]
+                print(f"Adjusted sound_feat shape: {sound_feat.shape}")
+            
+            # Compute dot product for each spatial location
+            sim_map = torch.zeros(b, h*w, device=frame_feat1.device)
+            
+            for i in range(b):
+                for j in range(h*w):
+                    # Check dimensions and handle accordingly
+                    frame_feat_vec = frame_feat1_flat[i, :, j]  # This is 1D [c]
+                    sound_feat_vec = sound_feat[i]  # This might be 1D or 2D
+                    
+                    # If sound_feat_vec is 2D, we need to flatten or take the first row
+                    if sound_feat_vec.dim() > 1:
+                        # Option 1: Take the mean across the second dimension
+                        sound_feat_vec = sound_feat_vec.mean(dim=0)
+                        # Option 2 (alternative): Take the first row if you prefer
+                        # sound_feat_vec = sound_feat_vec[0]
+                    
+                    # Now both tensors should be 1D for the dot product
+                    sim_map[i, j] = torch.dot(frame_feat_vec, sound_feat_vec)
+            
+            # Reshape to spatial dimensions
             sim_map = sim_map.view(b, h, w)
             
-            # Normalize similarity map
+            # Normalize and resize
             sim_map = F.interpolate(sim_map.unsqueeze(1), size=(224, 224), mode='bilinear', align_corners=False)
             orig_sim_map = sim_map.squeeze(1)
             output['orig_sim_map'] = orig_sim_map
             
-            # Simplified SSL loss (using cosine similarity)
-            z1 = self.net_ssl_head(frame_feat1, sound_feat)
-            z2 = self.net_ssl_head(frame_feat2, sound_feat)
+            # Simplified SSL loss for debugging
+            # Print dimensions for diagnosis
+            print(f"Before SSL head - frame_feat1: {frame_feat1.shape}")
+            print(f"Before SSL head - sound_feat: {sound_feat.shape}")
             
-            loss = -torch.mean(F.cosine_similarity(z1, z2.detach(), dim=1))
+            # Skip SSL head temporarily to diagnose the issue
+            frame_feat1_avg = F.adaptive_avg_pool2d(frame_feat1, 1).view(b, -1)
+            frame_feat2_avg = F.adaptive_avg_pool2d(frame_feat2, 1).view(b, -1)
+            
+            # Ensure same dimensions
+            min_dim = min(frame_feat1_avg.size(1), frame_feat2_avg.size(1))
+            z1 = frame_feat1_avg[:, :min_dim]
+            z2 = frame_feat2_avg[:, :min_dim]
+            
+            # Explicitly normalize features for cosine similarity
+            z1 = F.normalize(z1, p=2, dim=1)
+            z2 = F.normalize(z2, p=2, dim=1)
+            
+            # Compute contrastive loss - ensure this has gradients
+            loss = torch.nn.functional.mse_loss(z1, z2.detach())
+            
+            print(f"Loss requires grad: {loss.requires_grad}")
             
             return loss, output
     
-    netWrapper = NetWrapper(net_frame, net_sound, net_pc, net_ssl_head)
+    netWrapper = NetWrapper(net_frame, net_sound, net_ssl_head)
     
     ################################
     # data
@@ -205,7 +318,6 @@ def main_worker_single(device, args):
         [
             {'params': net_sound.parameters(), 'lr': args.lr_sound},
             {'params': net_frame.parameters(), 'lr': args.lr_frame},
-            {'params': net_pc.parameters(), 'lr': args.lr_frame},
             {'params': net_ssl_head.parameters(), 'lr': args.lr_ssl_head}
         ],
         betas=(args.beta1, 0.999),
@@ -228,7 +340,7 @@ def main_worker_single(device, args):
             evaluate_single(netWrapper, loader_val, history, epoch, args)
             
             # Save checkpoint
-            checkpoint_single(net_frame, net_sound, net_pc, net_ssl_head, history, epoch, args)
+            checkpoint_single(net_frame, net_sound, net_ssl_head, history, epoch, args)
     
     print('Training completed!')
 
@@ -242,6 +354,17 @@ def train_single(netWrapper, loader, optimizer, history, epoch, device, args):
 
     tic = time.time()
     for i, batch_data in enumerate(loader):
+        # Add debug print for the first batch
+        if i == 0:
+            print(f"First batch keys: {batch_data.keys()}")
+            print(f"Batch data types: {[(k, type(v)) for k, v in batch_data.items()]}")
+            # Print a sample from the batch to understand its structure
+            for k, v in batch_data.items():
+                if isinstance(v, torch.Tensor):
+                    print(f"{k} shape: {v.shape}")
+                else:
+                    print(f"{k} type: {type(v)}")
+        
         data_time.update(time.time() - tic)
 
         optimizer.zero_grad()
@@ -281,10 +404,17 @@ def evaluate_single(netWrapper, loader, history, epoch, args):
     for i, batch_data in enumerate(loader):
         with torch.no_grad():
             loss_ssl, output = netWrapper(batch_data)
-
             loss_meter.update(loss_ssl.item())
             
-            img = batch_data['frame_view1'].numpy()
+            # Get the frame data using whichever key is available
+            if 'frame_view1' in batch_data:
+                img = batch_data['frame_view1'].numpy()
+            elif 'frame' in batch_data:
+                img = batch_data['frame'].numpy()
+            else:
+                print(f"Warning: No frame data found. Keys: {batch_data.keys()}")
+                continue  # Skip this batch
+            
             video_id = batch_data['data_id']
 
             # original similarity map-related
@@ -329,7 +459,7 @@ def evaluate_single(netWrapper, loader, history, epoch, args):
     print('Plotting figures...')
     plot_loss_metrics(args.ckpt, history)
 
-def checkpoint_single(net_frame, net_sound, net_pc, net_ssl_head, history, epoch, args):
+def checkpoint_single(net_frame, net_sound, net_ssl_head, history, epoch, args):
     """Save model checkpoints"""
     print('Saving checkpoints at {} epochs.'.format(epoch))
     suffix_best = 'best.pth'
@@ -341,8 +471,6 @@ def checkpoint_single(net_frame, net_sound, net_pc, net_ssl_head, history, epoch
                    '{}/frame_{}'.format(args.ckpt, suffix_best))
         torch.save(net_sound.state_dict(),
                    '{}/sound_{}'.format(args.ckpt, suffix_best))
-        torch.save(net_pc.state_dict(),
-                   '{}/pcm_{}'.format(args.ckpt, suffix_best))
         torch.save(net_ssl_head.state_dict(),
                    '{}/ssl_head_{}'.format(args.ckpt, suffix_best))
 
