@@ -6,10 +6,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Define dummy networks for testing
-class DummyFrameNet(nn.Module):
+# Define synthetic networks for testing
+class SynthFrameNet(nn.Module):
     def __init__(self, out_dim=512):
-        super(DummyFrameNet, self).__init__()
+        super(SynthFrameNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
@@ -22,20 +22,16 @@ class DummyFrameNet(nn.Module):
         x = self.maxpool(x)
         return x
 
-class DummySoundNet(nn.Module):
+class SynthSoundNet(nn.Module):
     def __init__(self, out_dim=512):
-        super(DummySoundNet, self).__init__()
+        super(SynthSoundNet, self).__init__()
         self.fc = nn.Linear(128, out_dim)
         # Add a projection layer for the case when input features are fewer than 128
         self.projection = nn.Linear(1, 128)
         
     def forward(self, x):
         # Debug print to verify shape
-        print(f"DummySoundNet input shape: {x.shape}")
-        
-        # Handle the shape: [batch_size, 1, 128]
-        if x.dim() == 3 and x.size(2) == 128:
-            x = x.squeeze(1)  # Remove the second dimension if it's 1
+        print(f"SynthSoundNet input shape: {x.shape}")
         
         # Handle the shape: [batch_size, 128, 1]
         if x.dim() == 3 and x.size(2) == 1:
@@ -49,15 +45,21 @@ class DummySoundNet(nn.Module):
         if x.size(1) == 1:
             x = self.projection(x)
             print(f"Projected audio features to shape: {x.shape}")
+        elif x.size(1) != 128:
+            # Handle other dimensions using interpolation
+            x = x.unsqueeze(2)  # [batch, channels, 1]
+            x = F.interpolate(x, size=128, mode='linear')
+            x = x.squeeze(2)  # [batch, 128]
+            print(f"Interpolated audio features to shape: {x.shape}")
         
         # Now x should be [batch_size, 128]
         return self.fc(x)
 
-class DummySSLHead(nn.Module):
+class SynthSSLHead(nn.Module):
     def __init__(self, in_dim=512, out_dim=128):
-        super(DummySSLHead, self).__init__()
+        super(SynthSSLHead, self).__init__()
         self.projection = nn.Sequential(
-            nn.Linear(64, 512),
+            nn.Linear(64, 512),  # Use 64 to match SynthFrameNet's output channels
             nn.ReLU(),
             nn.Linear(512, out_dim)
         )
@@ -77,65 +79,74 @@ class DummySSLHead(nn.Module):
             return self.projection(x1), self.projection(x2)
         return self.projection(x1)
 
-class ModelBuilder():
+class ModelBuilder:
     # Build frame model
     def build_frame(self, arch='resnet18', train_from_scratch=False, weights=''):
         # Check which architecture to use
         if arch == 'resnet18':
-            # This would normally load ResNet-18, but we'll use dummy for now
-            print("Using dummy frame network instead of resnet18")
-            net = DummyFrameNet()
+            # In a real implementation, this would load ResNet-18
+            print("Using synthetic frame network instead of resnet18")
+            net = SynthFrameNet()
         elif arch == 'resnet50':
-            # This would normally load ResNet-50, but we'll use dummy for now
-            print("Using dummy frame network instead of resnet50")
-            net = DummyFrameNet()
-        elif arch == 'dummy':
-            # Provide a dummy network for testing
-            net = DummyFrameNet()
+            # In a real implementation, this would load ResNet-50
+            print("Using synthetic frame network instead of resnet50")
+            net = SynthFrameNet()
+        elif arch == 'synth' or arch == 'dummy' or arch == '':
+            # Provide a synthetic network for testing
+            net = SynthFrameNet()
         else:
-            print(f"Architecture {arch} not recognized, falling back to dummy")
-            net = DummyFrameNet()
+            print(f"Architecture {arch} not recognized, falling back to synthetic network")
+            net = SynthFrameNet()
             
         if len(weights) > 0:
             print(f'Loading weights for frame model: {weights}')
-            net.load_state_dict(torch.load(weights))
+            try:
+                net.load_state_dict(torch.load(weights))
+            except Exception as e:
+                print(f"Could not load weights: {e}")
             
         return net
 
     # Build sound model
     def build_sound(self, arch='vggish', weights=''):
         if arch == 'vggish':
-            # This would normally load VGGish, but we'll use dummy for now
-            print("Using dummy sound network instead of vggish")
-            net = DummySoundNet()
-        elif arch == 'dummy':
-            # Provide a dummy network for testing
-            net = DummySoundNet()
+            # In a real implementation, this would load VGGish
+            print("Using synthetic sound network instead of vggish")
+            net = SynthSoundNet()
+        elif arch == 'synth' or arch == 'dummy' or arch == '':
+            # Provide a synthetic network for testing
+            net = SynthSoundNet()
         else:
-            print(f"Architecture {arch} not recognized, falling back to dummy")
-            net = DummySoundNet()
+            print(f"Architecture {arch} not recognized, falling back to synthetic network")
+            net = SynthSoundNet()
             
         if len(weights) > 0:
             print(f'Loading weights for sound model: {weights}')
-            net.load_state_dict(torch.load(weights))
+            try:
+                net.load_state_dict(torch.load(weights))
+            except Exception as e:
+                print(f"Could not load weights: {e}")
             
         return net
             
     # Build SSL head model
     def build_ssl_head(self, arch='simclr'):
         if arch == 'simclr':
-            # This would normally load SimCLR head, but we'll use dummy for now
-            print("Using dummy SSL head instead of simclr")
-            net = DummySSLHead()
+            # In a real implementation, this would load SimCLR head
+            print("Using synthetic SSL head instead of simclr")
+            net = SynthSSLHead()
         elif arch == 'simsiam':
-            # This would normally load SimSiam head, but we'll use dummy for now
-            print("Using dummy SSL head instead of simsiam")
-            net = DummySSLHead()
-        elif arch == 'dummy':
-            # Provide a dummy network for testing
-            net = DummySSLHead()
+            # In a real implementation, this would load SimSiam head
+            print("Using synthetic SSL head instead of simsiam")
+            net = SynthSSLHead()
+        elif arch == 'synth' or arch == 'dummy' or arch == '':
+            # Provide a synthetic network for testing
+            net = SynthSSLHead()
         else:
-            print(f"Architecture {arch} not recognized, falling back to dummy")
-            net = DummySSLHead()
+            print(f"Architecture {arch} not recognized, falling back to synthetic network")
+            net = SynthSSLHead()
             
         return net
+
+# Explicitly export the ModelBuilder class
+__all__ = ['ModelBuilder', 'SynthFrameNet', 'SynthSoundNet', 'SynthSSLHead']

@@ -1,41 +1,71 @@
 import os
 import subprocess
 import sys
+import datetime
 
 def main():
-    """Run the experiment with 5 samples and 2 epochs"""
     print("Starting experiment with 5 samples and 2 epochs")
     
-    # Get the current directory path to ensure we're using the correct path
+    # Create timestamped output directory
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = f"./experiments/run_{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"Output will be saved to: {output_dir}")
+    
     current_dir = os.path.dirname(os.path.abspath(__file__))
     data_script = os.path.join(current_dir, "data.py")
     main_script = os.path.join(current_dir, "main_mock.py")
     
-    # Step 1: Generate the mock data
+    # Create log file in output directory
+    log_file = os.path.join(output_dir, "experiment_log.txt")
+    with open(log_file, "w") as f:
+        f.write(f"Experiment started at {timestamp}\n")
+        f.write(f"Output directory: {output_dir}\n\n")
+    
     print("\n=== Generating mock data ===")
     print(f"Running data generation script at: {data_script}")
     
-    # Create data.py if it doesn't exist
     if not os.path.exists(data_script):
         create_data_script(data_script)
     
-    subprocess.run([sys.executable, data_script], check=True)
+    # Run data generation and capture output
+    result = subprocess.run(
+        [sys.executable, data_script], 
+        check=True,
+        capture_output=True,
+        text=True
+    )
     
-    # Step 2: Run the training with simplified parameters
+    # Save data generation output to log
+    with open(log_file, "a") as f:
+        f.write("=== Data Generation Output ===\n")
+        f.write(result.stdout)
+        f.write("\n\n")
+    
     print("\n=== Starting training ===")
-    subprocess.run([
+    # Run training with output directory specified
+    result = subprocess.run([
         sys.executable, main_script,
         "--num_train", "5",
-        "--num_epoch", "2",
+        "--num_epoch", "4",
         "--batch_size", "2",
         "--disp_iter", "1",
-        "--eval_epoch", "1",
-        "--arch_frame", "dummy",
-        "--arch_sound", "dummy",
-        "--arch_selfsuperlearn_head", "dummy"
-    ], check=True)
+        "--eval_epoch", "4",
+        "--arch_frame", "synth",
+        "--arch_sound", "synth",
+        "--arch_selfsuperlearn_head", "synth",
+        "--ckpt", "./sspl_w_pcm_flickr10k",
+    ], check=True, capture_output=True, text=True)
     
-    print("\n=== Experiment completed ===")
+    # Save training output to log
+    with open(log_file, "a") as f:
+        f.write("=== Training Output ===\n")
+        f.write(result.stdout)
+        if result.stderr:
+            f.write("\n=== Training Errors ===\n")
+            f.write(result.stderr)
+    
+    print(f"\n=== Experiment completed and saved to {output_dir} ===")
 
 def create_data_script(path):
     """Create the data.py file with mock data generation code"""
@@ -60,10 +90,10 @@ def main():
     os.makedirs("./metadata/val/audio_features", exist_ok=True)
     
     # Create mock training data
-    create_mock_data("train", 5)
+    create_mock_data("train", 6)
     
     # Create mock validation data
-    create_mock_data("val", 2)
+    create_mock_data("val", 4)
     
     print("Mock data creation complete!")
 

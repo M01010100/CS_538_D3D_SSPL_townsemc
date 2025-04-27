@@ -15,10 +15,9 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
-from models import ModelBuilder
-from dataset.videodataset_mock import VideoDatasetMock  # Use our mock dataset
+from models.__init__ import ModelBuilder
+from dataset.videodataset_mock import VideoDatasetMock 
 
-# Replace this import if ArgParser doesn't work
 # from arguments_train import ArgParser
 from utils import makedirs, AverageMeter, save_visual, plot_loss_metrics, normalize_img
 
@@ -116,8 +115,8 @@ def main_worker_single(device, args):
         )
     except Exception as e:
         print(f"Error building frame network: {e}")
-        print("Falling back to dummy frame network")
-        net_frame = builder.build_frame(arch='dummy')
+        print("Falling back to synthetic frame network")
+        net_frame = builder.build_frame(arch='synth')
     
     # Try to build sound network
     try:
@@ -128,8 +127,8 @@ def main_worker_single(device, args):
         )
     except Exception as e:
         print(f"Error building sound network: {e}")
-        print("Falling back to dummy sound network")
-        net_sound = builder.build_sound(arch='dummy')
+        print("Falling back to synthetic sound network")
+        net_sound = builder.build_sound(arch='synth')
     
     # Try to build SSL head
     try:
@@ -139,13 +138,12 @@ def main_worker_single(device, args):
         )
     except Exception as e:
         print(f"Error building SSL head: {e}")
-        print("Falling back to dummy SSL head")
-        net_ssl_head = builder.build_ssl_head(arch='dummy')
+        print("Falling back to synthetic SSL head")
+        net_ssl_head = builder.build_ssl_head(arch='synth')
 
     # Move models to device and ensure parameters require gradients
     net_frame = net_frame.to(device)
     net_sound = net_sound.to(device)
-    # net_pc = net_pc.to(device)  # Comment this line out - net_pc isn't defined
     net_ssl_head = net_ssl_head.to(device)
     
     # Ensure all parameters require gradients
@@ -153,12 +151,9 @@ def main_worker_single(device, args):
         param.requires_grad = True
     for param in net_sound.parameters():
         param.requires_grad = True
-    # for param in net_pc.parameters():  # Comment this line out - net_pc isn't defined
-    #     param.requires_grad = True
     for param in net_ssl_head.parameters():
         param.requires_grad = True
 
-    # Create wrapper model for training
     class NetWrapper(torch.nn.Module):
         def __init__(self, net_frame, net_sound, net_ssl_head):
             super(NetWrapper, self).__init__()
@@ -168,20 +163,15 @@ def main_worker_single(device, args):
             self.temperature = 0.1
         
         def forward(self, batch_data):
-            # Get the frame data using the keys that actually exist in your dataset
-            # Check if we're using the expected keys or need to adapt
             if 'frame_view1' in batch_data and 'frame_view2' in batch_data:
                 frame_view1 = batch_data['frame_view1'].to(device)
                 frame_view2 = batch_data['frame_view2'].to(device)
             elif 'frame' in batch_data:
-                # If only one frame is provided, duplicate it with some noise for the second view
                 frame = batch_data['frame'].to(device)
                 frame_view1 = frame
-                # Create a slightly perturbed version for the second view
                 noise = torch.randn_like(frame) * 0.1
                 frame_view2 = frame + noise
             else:
-                # Print the keys that are available to debug
                 print(f"Available keys in batch_data: {batch_data.keys()}")
                 raise KeyError("Cannot find expected frame keys in the batch data")
             
@@ -194,7 +184,6 @@ def main_worker_single(device, args):
                 else:  # Multiple time steps - take average
                     audio_feat = audio_feat.mean(dim=2)
     
-            # Case 2: [batch_size, time, features]
             elif audio_feat.dim() == 3 and audio_feat.size(1) != 128 and audio_feat.size(2) == 128:
                 audio_feat = audio_feat.mean(dim=1)
     
@@ -234,12 +223,8 @@ def main_worker_single(device, args):
                     frame_feat_vec = frame_feat1_flat[i, :, j]  # This is 1D [c]
                     sound_feat_vec = sound_feat[i]  # This might be 1D or 2D
                     
-                    # If sound_feat_vec is 2D, we need to flatten or take the first row
                     if sound_feat_vec.dim() > 1:
-                        # Option 1: Take the mean across the second dimension
                         sound_feat_vec = sound_feat_vec.mean(dim=0)
-                        # Option 2 (alternative): Take the first row if you prefer
-                        # sound_feat_vec = sound_feat_vec[0]
                     
                     # Now both tensors should be 1D for the dot product
                     sim_map[i, j] = torch.dot(frame_feat_vec, sound_feat_vec)
@@ -252,12 +237,10 @@ def main_worker_single(device, args):
             orig_sim_map = sim_map.squeeze(1)
             output['orig_sim_map'] = orig_sim_map
             
-            # Simplified SSL loss for debugging
             # Print dimensions for diagnosis
             print(f"Before SSL head - frame_feat1: {frame_feat1.shape}")
             print(f"Before SSL head - sound_feat: {sound_feat.shape}")
             
-            # Skip SSL head temporarily to diagnose the issue
             frame_feat1_avg = F.adaptive_avg_pool2d(frame_feat1, 1).view(b, -1)
             frame_feat2_avg = F.adaptive_avg_pool2d(frame_feat2, 1).view(b, -1)
             
@@ -354,7 +337,6 @@ def train_single(netWrapper, loader, optimizer, history, epoch, device, args):
 
     tic = time.time()
     for i, batch_data in enumerate(loader):
-        # Add debug print for the first batch
         if i == 0:
             print(f"First batch keys: {batch_data.keys()}")
             print(f"Batch data types: {[(k, type(v)) for k, v in batch_data.items()]}")

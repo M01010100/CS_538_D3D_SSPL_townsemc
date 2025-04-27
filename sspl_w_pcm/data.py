@@ -18,7 +18,7 @@ def main():
     os.makedirs("./metadata/val/audio_features", exist_ok=True)
     
     # Create mock training data
-    create_mock_data("train", 3)  # Create 3 training samples
+    create_mock_data("train", 3) # Create 3 training samples
     
     # Create mock validation data
     create_mock_data("val", 2)    # Create 2 validation samples
