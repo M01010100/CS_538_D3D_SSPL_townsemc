@@ -1,6 +1,24 @@
+ # This a Fork created for a CS 548 class project at SUNY Polytechnic Institute
+* Matthew Townsend
+
+## Modifications
+Due to time constraints the task at hand was to get the model to run and theorize how to implement a version of this codebase with 3D data. 
+
+Regardless I still made rather large modifications as I was unsable to download the Flickr dataset and quickly switched to synthetic data. 
+
+* data.py - creation of dataset
+* main_mock.py - a copy of main.py with several modifications to run off the syntheitic dataset.
+* Various other files such as argument_test/train.py, __init__.py, to work with synthetic data.
+
+## Additional
+Under torchvggish/torchvggish/vggish_pretrained download the file from the link in the txt file. 
+
+## Run
+Run main_mock.py to generate and data and run model.
+
+
 # Self-Supervised Predictive Learning (SSPL)
 This repository hosts the PyTorch code for our self-supervised sound source localization method.
-
 
 ## Paper
 **Self-Supervised Predictive Learning: A Negative-Free Method for Sound Source Localization in Visual Scenes** <br/>

@@ -1,0 +1,10 @@
+*.pth
+*.pyc
+ckpt/
+experiments/
+*/ckpt/
+*/experiments/
+metadata/SoundNet_Flickr/*
+metadata/train/*
+metadata/val/*
+sspl_w_pcm_flickr10k/*
