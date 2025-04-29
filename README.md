@@ -13,10 +13,13 @@ Regardless I still made rather large modifications as I was unsable to download 
 ## Additional
 Under torchvggish/torchvggish/vggish_pretrained download the file from the link in the txt file. 
 
+Req.txt is the package list for the conda enviroment, there are several packages. 
+
+ffmpeg
+
 ## Run
-Run main_mock.py to generate and data and run model.
-
-
+Run 'run_experiment.py' to generate and data and run model.
+ ---
 # Self-Supervised Predictive Learning (SSPL)
 This repository hosts the PyTorch code for our self-supervised sound source localization method.
 

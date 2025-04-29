@@ -43,27 +43,42 @@ def main():
         f.write("\n\n")
     
     print("\n=== Starting training ===")
-    # Run training with output directory specified
-    result = subprocess.run([
-        sys.executable, main_script,
-        "--num_train", "5",
-        "--num_epoch", "4",
-        "--batch_size", "2",
-        "--disp_iter", "1",
-        "--eval_epoch", "4",
-        "--arch_frame", "synth",
-        "--arch_sound", "synth",
-        "--arch_selfsuperlearn_head", "synth",
-        "--ckpt", "./sspl_w_pcm_flickr10k",
-    ], check=True, capture_output=True, text=True)
-    
-    # Save training output to log
-    with open(log_file, "a") as f:
-        f.write("=== Training Output ===\n")
-        f.write(result.stdout)
-        if result.stderr:
-            f.write("\n=== Training Errors ===\n")
-            f.write(result.stderr)
+    try:
+        result = subprocess.run([
+            sys.executable, main_script,
+            "--num_train", "5",
+            "--num_epoch", "4",
+            "--batch_size", "2",
+            "--disp_iter", "1", 
+            "--eval_epoch", "4",
+            "--arch_frame", "vgg16",       
+            "--arch_sound", "vggish",      
+            "--arch_selfsuperlearn_head", "simsiam",  
+            "--ckpt", "./sspl_w_pcm_flickr10k",
+            "--id", output_dir.split('/')[-1]  
+        ], check=False, capture_output=True, text=True)
+        
+        # Print and log all output
+        print("STDOUT:", result.stdout)
+        print("STDERR:", result.stderr)
+        
+        # Save training output to log
+        with open(log_file, "a") as f:
+            f.write("=== Training Output ===\n")
+            f.write(result.stdout)
+            if result.stderr:
+                f.write("\n=== Training Errors ===\n")
+                f.write(result.stderr)
+                
+        # Only raise error after we've logged everything
+        if result.returncode != 0:
+            print(f"Training script failed with exit code {result.returncode}")
+            print(f"See log file for details: {log_file}")
+            
+    except Exception as e:
+        print(f"Error running training script: {e}")
+        with open(log_file, "a") as f:
+            f.write(f"\n=== Exception during training ===\n{str(e)}\n")
     
     print(f"\n=== Experiment completed and saved to {output_dir} ===")
 

@@ -177,25 +177,21 @@ def main_worker_single(device, args):
             
             audio_feat = batch_data['audio_feat'].to(device)
     
-            # Fix audio feature shape before passing to sound network
             if audio_feat.dim() == 3:
-                if audio_feat.size(2) == 1:  # Single time step
+                if audio_feat.size(2) == 1: 
                     audio_feat = audio_feat.squeeze(2)
-                else:  # Multiple time steps - take average
+                else:  
                     audio_feat = audio_feat.mean(dim=2)
     
             elif audio_feat.dim() == 3 and audio_feat.size(1) != 128 and audio_feat.size(2) == 128:
                 audio_feat = audio_feat.mean(dim=1)
     
-            # Now audio_feat should be [batch_size, features]
             print(f"Processed audio feature shape: {audio_feat.shape}")
     
-            # Forward through models
             frame_feat1 = self.net_frame(frame_view1)
             frame_feat2 = self.net_frame(frame_view2)
             sound_feat = self.net_sound(audio_feat)
             
-            # Generate output dict
             output = {}
             
             # Compute similarity map
@@ -206,27 +202,21 @@ def main_worker_single(device, args):
             print(f"frame_feat1_flat shape: {frame_feat1_flat.shape}")
             print(f"sound_feat shape: {sound_feat.shape}")
             
-            # Handle dimensions for sound features if they don't match frame features
             if sound_feat.size(1) != c:
                 print(f"Warning: Sound feature dimension ({sound_feat.size(1)}) doesn't match frame feature channels ({c})")
-                # Use adaptive pooling to adjust sound feature dimension to match frame channels
                 sound_feat = sound_feat.unsqueeze(-1)  # Add a dummy spatial dimension [b, dim, 1]
                 sound_feat = F.adaptive_avg_pool1d(sound_feat, c).squeeze(-1)  # Reshape to [b, c]
                 print(f"Adjusted sound_feat shape: {sound_feat.shape}")
             
-            # Compute dot product for each spatial location
             sim_map = torch.zeros(b, h*w, device=frame_feat1.device)
             
             for i in range(b):
                 for j in range(h*w):
-                    # Check dimensions and handle accordingly
                     frame_feat_vec = frame_feat1_flat[i, :, j]  # This is 1D [c]
-                    sound_feat_vec = sound_feat[i]  # This might be 1D or 2D
-                    
+                    sound_feat_vec = sound_feat[i]  
                     if sound_feat_vec.dim() > 1:
                         sound_feat_vec = sound_feat_vec.mean(dim=0)
                     
-                    # Now both tensors should be 1D for the dot product
                     sim_map[i, j] = torch.dot(frame_feat_vec, sound_feat_vec)
             
             # Reshape to spatial dimensions
@@ -253,7 +243,6 @@ def main_worker_single(device, args):
             z1 = F.normalize(z1, p=2, dim=1)
             z2 = F.normalize(z2, p=2, dim=1)
             
-            # Compute contrastive loss - ensure this has gradients
             loss = torch.nn.functional.mse_loss(z1, z2.detach())
             
             print(f"Loss requires grad: {loss.requires_grad}")
